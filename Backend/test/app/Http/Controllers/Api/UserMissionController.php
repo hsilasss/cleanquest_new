@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 use GuzzleHttp\Client;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * @mixin \Illuminate\Filesystem\FilesystemManager // Tambahkan baris ini
@@ -83,108 +84,73 @@ class UserMissionController extends Controller
      * @param  int  $userMissionId
      * @return \Illuminate\Http\JsonResponse
      */
-    public function submitMissionProof(Request $request, $userMissionId)
-    {
-        try {
-            $user = Auth::user();
+   public function submitMissionProof(Request $request, $userMissionId)
+{
+    try {
+        $user = Auth::user();
 
-            $validator = Validator::make($request->all(), [
-                'proof_file' => 'required|file|mimes:jpeg,png,jpg,mp4,mov,avi|max:10240', // Max 10MB
-            ]);
+        $validator = Validator::make($request->all(), [
+            'proof_file' => 'required|file|mimes:jpeg,png,jpg,mp4,mov,avi|max:10240',
+        ]);
 
-            if ($validator->fails()) {
-                return response()->json(['errors' => $validator->errors()], 422);
-            }
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
 
-            $userMission = UserMission::where('id', $userMissionId)
-                ->where('user_id', $user->id)
-                ->first();
+        $userMission = UserMission::where('id', $userMissionId)
+            ->where('user_id', $user->id)
+            ->first();
 
-            if (!$userMission) {
-                return response()->json(['message' => 'User mission not found or does not belong to you.'], 404);
-            }
+        if (!$userMission) {
+            return response()->json(['message' => 'User mission not found or does not belong to you.'], 404);
+        }
 
-            if ($userMission->status == 'pending' || $userMission->status == 'selesai') {
-                return response()->json(['message' => 'Mission cannot be submitted. Its status is already ' . $userMission->status . '.'], 400);
-            }
+        if ($userMission->status == 'pending' || $userMission->status == 'selesai') {
+            return response()->json(['message' => 'Mission cannot be submitted. Its status is already ' . $userMission->status . '.'], 400);
+        }
 
-            if ($request->hasFile('proof_file')) {
+        if ($request->hasFile('proof_file')) {
+            try {
                 $file = $request->file('proof_file');
 
-                // --- INI ADALAH BAGIAN BARU UNTUK UPLOAD KE IMGUR ---
-                $client = new Client();
-                $imgurClientId = env('IMGUR_CLIENT_ID');
-
-                if (empty($imgurClientId)) {
-                    return response()->json(['message' => 'Imgur Client ID is not configured.'], 500);
-                }
-
-                try {
-                    // Konversi file ke base64
-                    $base64File = base64_encode(file_get_contents($file->getRealPath()));
-
-                    // Kirim request POST ke Imgur API
-                    $response = $client->request('POST', 'https://api.imgur.com/3/image', [ // Imgur menerima video juga di endpoint ini
-                        'headers' => [
-                            'Authorization' => 'Client-ID ' . $imgurClientId,
-                            'Content-Type' => 'application/x-www-form-urlencoded',
-                        ],
-                        'form_params' => [
-                            'image' => $base64File,
-                            'type' => ($file->getClientMimeType() === 'video/mp4' || $file->getClientMimeType() === 'video/quicktime' || $file->getClientMimeType() === 'video/x-msvideo') ? 'video' : 'base64', // Tentukan tipe untuk Imgur
-                            // Anda bisa menambahkan 'title', 'description', dll.
-                        ],
-                    ]);
-
-                    $responseData = json_decode($response->getBody()->getContents(), true);
-
-                    if ($responseData['success'] && isset($responseData['data']['link'])) {
-                        $fileUrl = $responseData['data']['link']; // Ini adalah URL gambar/video dari Imgur
-
-                        // Catatan: Imgur tidak menyediakan API untuk menghapus file hanya dengan URL.
-                        // Jika Anda ingin menghapus bukti misi lama, Anda perlu menyimpan 'deletehash'
-                        // yang diberikan Imgur di database dan menggunakan API penghapusan Imgur.
-                        // Untuk saat ini, kita abaikan penghapusan file lama di Imgur.
-
-                        $userMission->proof = $fileUrl;
-                        $userMission->status = 'pending';
-                        $userMission->save();
-
-                        return response()->json([
-                            'message' => 'Bukti misi berhasil diunggah via Imgur!',
-                            'user_mission' => $userMission->fresh(),
-                            'file_url' => $fileUrl,
-                        ], 200);
-                    } else {
-                        return response()->json([
-                            'message' => 'Gagal mengunggah bukti misi ke Imgur.',
-                            'imgur_response' => $responseData,
-                        ], 500);
+                // Hapus file lama jika ada
+                if ($userMission->proof) {
+                    $oldPath = str_replace(asset('storage/'), '', $userMission->proof);
+                    if (Storage::disk('public')->exists($oldPath)) {
+                        Storage::disk('public')->delete($oldPath);
                     }
-                } catch (\GuzzleHttp\Exception\ClientException $e) {
-                    $responseBody = $e->getResponse()->getBody()->getContents();
-                    return response()->json([
-                        'message' => 'Imgur API Error: ' . $e->getMessage(),
-                        'imgur_error_response' => json_decode($responseBody, true),
-                    ], $e->getCode());
-                } catch (\Exception $e) {
-                    return response()->json([
-                        'message' => 'Server Error: ' . $e->getMessage(),
-                        'line' => $e->getLine(),
-                        'file' => $e->getFile(),
-                    ], 500);
                 }
-            }
 
-            return response()->json(['message' => 'No file was uploaded.'], 400);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Server Error: ' . $e->getMessage(),
-                'line' => $e->getLine(),
-                'file' => $e->getFile(),
-            ], 500);
+                // Simpan file baru ke storage
+                $filename = 'proof_' . $userMissionId . '_' . time() . '.' . $file->getClientOriginalExtension();
+                $path = $file->storeAs('mission_proofs', $filename, 'public');
+                $fileUrl = asset('storage/' . $path);
+
+                $userMission->proof = $fileUrl;
+                $userMission->status = 'pending';
+                $userMission->save();
+
+                return response()->json([
+                    'message' => 'Bukti misi berhasil diunggah!',
+                    'user_mission' => $userMission->fresh(),
+                    'file_url' => $fileUrl,
+                ], 200);
+
+            } catch (\Exception $e) {
+                return response()->json([
+                    'message' => 'Server Error: ' . $e->getMessage(),
+                ], 500);
+            }
         }
+
+        return response()->json(['message' => 'No file was uploaded.'], 400);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Server Error: ' . $e->getMessage(),
+        ], 500);
     }
+}
     /**
      * Get user missions history for a specific user, filtered by status.
      *

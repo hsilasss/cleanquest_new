@@ -11,7 +11,7 @@ import 'package:image_picker/image_picker.dart'; // <<< PENTING: Pastikan ini ad
 class ApiService {
   // Ganti dengan base URL API Laravel Anda yang sudah di-deploy
   // Pastikan ini adalah URL dasar, tanpa /api
-  static const String _baseUrl = 'http://10.0.2.2:8000/api';
+  static const String _baseUrl = 'http://10.20.30.191:8000/api';
 
   Future<void> _saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
@@ -50,7 +50,7 @@ class ApiService {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('authToken');
     print(
-      'DEBUG_API_SERVICE: Retrieved token from SharedPreferences: ${token != null ? "EXISTS" : "NULL"}',
+  'DEBUG_API_SERVICE: Retrieved token: ${token != null ? token.substring(0, 20) + "..." : "NULL"}',
     );
     return token;
   }
@@ -67,7 +67,7 @@ class ApiService {
       // CHANGE THIS DEFAULT VALUE TO JUST THE BASE DOMAIN
       // For your Railway app, it should be: 'https://test-production-6d06.up.railway.app'
       defaultValue:
-          'http://10.0.2.2:8000/api', // <--- Cek lagi apakah ini URL base saja tanpa '/api'
+          'http://10.20.30.191:8000/api', // <--- Cek lagi apakah ini URL base saja tanpa '/api'
     );
 
     // The endpoint path
@@ -383,18 +383,26 @@ class ApiService {
         filename: proofFile.name,
       ));
 
-      var response = await request.send();
-      final responseBody = await response.stream.bytesToString(); // Baca response body
+     print('REQUEST HEADERS: ${request.headers}');
+print('REQUEST URL: ${request.url}');
+print('FILE PATH: ${proofFile.path}');
 
-      if (response.statusCode == 200) {
-        print('Upload bukti berhasil! Respon: $responseBody');
-        return true;
-      } else {
-        print('Gagal upload bukti. Status: ${response.statusCode}, Respon: $responseBody');
-        // Decode body untuk pesan error lebih detail dari Laravel
-        final errorData = json.decode(responseBody);
-        throw Exception(errorData['message'] ?? 'Failed to upload proof.');
-      }
+var response = await request.send();
+
+print('STATUS CODE: ${response.statusCode}');
+
+final responseBody = await response.stream.bytesToString();
+print('RESPONSE BODY: $responseBody');
+
+if (response.statusCode == 200) {
+  print('Upload bukti berhasil!');
+  return true;
+} else {
+  print('Gagal upload bukti.');
+  final errorData = json.decode(responseBody);
+  throw Exception(
+      errorData['message'] ?? 'Failed to upload proof.');
+}
     } catch (e) {
       print('Error dalam uploadMissionProof: $e');
       rethrow; // Lempar kembali exception agar bisa ditangkap di UI

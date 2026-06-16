@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use GuzzleHttp\Client;
+use Illuminate\Support\Facades\Storage;
 
 class ApiController extends Controller
 {
@@ -199,89 +200,52 @@ class ApiController extends Controller
      * @return \Illuminate\Http\JsonResponse
      */
     public function updateProfilePicture(Request $request)
-    {
-        $user = Auth::user();
+{
+    $user = Auth::user();
 
-        $validator = Validator::make($request->all(), [
-            'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048', // Max 2MB
-        ]);
+    $validator = Validator::make($request->all(), [
+        'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+    ]);
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
+    if ($validator->fails()) {
+        return response()->json(['errors' => $validator->errors()], 422);
+    }
 
-        if ($request->hasFile('profile_picture')) {
+    if ($request->hasFile('profile_picture')) {
+        try {
             $file = $request->file('profile_picture');
 
-            // Inisialisasi Guzzle HTTP client
-            $client = new Client();
-            $imgurClientId = env('IMGUR_CLIENT_ID');
-
-            if (empty($imgurClientId)) {
-                return response()->json(['message' => 'Imgur Client ID is not configured.'], 500);
-            }
-
-            try {
-                // Konversi gambar ke base64 (Imgur API sering menerima ini)
-                $base64Image = base64_encode(file_get_contents($file->getRealPath()));
-
-                // Kirim request POST ke Imgur API
-                $response = $client->request('POST', 'https://api.imgur.com/3/image', [
-                    'headers' => [
-                        'Authorization' => 'Client-ID ' . $imgurClientId,
-                        'Content-Type' => 'application/x-www-form-urlencoded',
-                    ],
-                    'form_params' => [
-                        'image' => $base64Image,
-                        // Anda bisa menambahkan 'title', 'description', 'album', dll.
-                    ],
-                ]);
-
-                $responseData = json_decode($response->getBody()->getContents(), true);
-
-                if ($responseData['success'] && isset($responseData['data']['link'])) {
-                    $fileUrl = $responseData['data']['link']; // Ini adalah URL gambar dari Imgur
-
-                    // Hapus gambar lama jika ada dan bukan gambar default (dari Imgur juga)
-                    if ($user->profile_picture && !str_contains($user->profile_picture, 'default_avatar.png')) {
-                        // Untuk Imgur, biasanya tidak ada API untuk menghapus gambar hanya dengan URL.
-                        // Imgur menyediakan 'deletehash' saat upload. Anda harus menyimpan deletehash
-                        // di database untuk bisa menghapus gambar lama. Ini membuat kompleksitas sangat tinggi.
-                        // Untuk saat ini, kita abaikan penghapusan gambar lama di Imgur.
-                        // Anda harus mempertimbangkan konsekuensinya (gambar lama tetap ada di Imgur).
-                    }
-
-                    $user->profile_picture = $fileUrl;
-                    $user->save();
-
-                    return response()->json([
-                        'message' => 'Foto profil berhasil diperbarui via Imgur!',
-                        'profile_picture_url' => $fileUrl,
-                        'user' => $user->fresh(),
-                    ]);
-                } else {
-                    return response()->json([
-                        'message' => 'Gagal mengunggah foto ke Imgur.',
-                        'imgur_response' => $responseData,
-                    ], 500);
+            // Hapus foto lama jika ada dan bukan default
+            if ($user->profile_picture && !str_contains($user->profile_picture, 'default_avatar.png')) {
+                $oldPath = str_replace(asset('storage/'), '', $user->profile_picture);
+                if (Storage::disk('public')->exists($oldPath)) {
+                    Storage::disk('public')->delete($oldPath);
                 }
-            } catch (\GuzzleHttp\Exception\ClientException $e) {
-                $responseBody = $e->getResponse()->getBody()->getContents();
-                return response()->json([
-                    'message' => 'Imgur API Error: ' . $e->getMessage(),
-                    'imgur_error_response' => json_decode($responseBody, true),
-                ], $e->getCode());
-            } catch (\Exception $e) {
-                return response()->json([
-                    'message' => 'Server Error: ' . $e->getMessage(),
-                    'line' => $e->getLine(),
-                    'file' => $e->getFile(),
-                ], 500);
             }
-        }
 
-        return response()->json(['message' => 'Tidak ada foto profil yang diunggah.'], 400);
+            // Simpan foto baru ke storage/app/public/profile_pictures
+            $filename = 'profile_' . $user->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+            $path = $file->storeAs('profile_pictures', $filename, 'public');
+            $fileUrl = asset('storage/' . $path);
+
+            $user->profile_picture = $fileUrl;
+            $user->save();
+
+            return response()->json([
+                'message' => 'Foto profil berhasil diperbarui!',
+                'profile_picture_url' => $fileUrl,
+                'user' => $user->fresh(),
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Server Error: ' . $e->getMessage(),
+            ], 500);
+        }
     }
+
+    return response()->json(['message' => 'Tidak ada foto profil yang diunggah.'], 400);
+}
     // --- AKHIR BAGIAN BARU UNTUK FOTO PROFIL ---
 
     // Catatan: Jika ada metode lain seperti activeMissions, submitMissionProof,
