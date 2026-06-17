@@ -11,7 +11,7 @@ import 'package:image_picker/image_picker.dart'; // <<< PENTING: Pastikan ini ad
 class ApiService {
   // Ganti dengan base URL API Laravel Anda yang sudah di-deploy
   // Pastikan ini adalah URL dasar, tanpa /api
-  static const String _baseUrl = 'http://10.20.30.191:8000/api';
+  static const String _baseUrl = 'http://http://127.0.0.1:8000/api';
 
   Future<void> _saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
@@ -67,7 +67,7 @@ class ApiService {
       // CHANGE THIS DEFAULT VALUE TO JUST THE BASE DOMAIN
       // For your Railway app, it should be: 'https://test-production-6d06.up.railway.app'
       defaultValue:
-          'http://10.20.30.191:8000/api', // <--- Cek lagi apakah ini URL base saja tanpa '/api'
+          'http://127.0.0.1:8000/api', // <--- Cek lagi apakah ini URL base saja tanpa '/api'
     );
 
     // The endpoint path
